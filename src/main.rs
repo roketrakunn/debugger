@@ -17,6 +17,24 @@ impl Debugger {
         }
     }
 
+    // mem <addr > reads bytes form target's memory at any adress , after that 
+    // we can point ta rsp and see the raw stack.
+
+    fn read_memory(&mut self , adrr : u64 , len: usize) ->Vec<u8> {
+        let mut result  = Vec::new();
+        let mut i = 0 ; 
+        while i < len { 
+            let word = ptrace::read(self.pid ,(adrr + i as u64) as *mut _)
+                .expect("ptrace");
+            let bytes = word.to_le_bytes(); 
+            result.extend_from_slice(&bytes);
+            i += 8 ;
+        }
+        result.truncate(len);
+        result
+    }
+
+
     // Patch the byte at `addr` with INT3 (0xCC) so the CPU traps when it gets there
     fn set_breakpoint(&mut self, addr: u64) {
         let orig = ptrace::read(self.pid, addr as *mut _).expect("ptrace read failed");
@@ -75,6 +93,29 @@ impl Debugger {
                                 let regs = ptrace::getregs(pid).expect("getregs failed");
                                 print_regs(&regs);
                             }
+
+                            cmd if cmd.starts_with("memory ") => { 
+                                let parts: Vec<&str> = cmd.splitn(3,' ').collect();
+                                let adrr = u64::from_str_radix(
+                                    parts.get(1).unwrap_or(&"").trim_start_matches("0x")
+                                    ,
+                                    16).unwrap_or(0); 
+                                let len = parts.get(2)
+                                    .and_then(|s| s.parse::<usize>().ok())
+                                    .unwrap_or(64);
+                                let bytes = self.read_memory(adrr, len);
+
+                                for(i , chunk) in bytes.chunks(8).enumerate(){ 
+                                    print!("0x{:x}: ",adrr + i as u64 * 8);
+                                    for b in chunk { 
+                                        print!("{:02x} ", b);
+                                    }
+                                    println!();
+                                }
+
+                            }
+                        
+
                             cmd if cmd.starts_with("break ") => {
                                 // expects: break 0x401234
                                 let addr_str = cmd.trim_start_matches("break ").trim_start_matches("0x");

@@ -17,6 +17,44 @@ impl Debugger {
         }
     }
 
+    //back tracing the stack
+
+    fn backtrace(&mut self, regs :&nix::libc::user_regs_struct) {
+        println!("[backtrace]");
+        
+        let mut rbp = regs.rbp; 
+        let mut rip = regs.rip;
+        let mut frame = 0; 
+
+
+        loop {
+            println!("  frame {}: rip  = 0x{:x}", frame , rip); 
+
+            if rbp == 0 { 
+                break;
+            }
+
+            //return rbp is at curr_rbp + 8 
+
+            rip  =  match ptrace::read(self.pid , (rbp + 8) as *mut _) {
+                Ok(v) => v as u64,
+                Err(_) => break, 
+            };
+
+            // last saved rbp is at rbp
+            rbp = match  ptrace::read(self.pid , rbp as *mut _) {
+                Ok(v) => v as u64,
+                Err(_) => break,
+            };
+
+            frame += 1;
+        }
+    }
+    
+
+
+
+
     // mem <addr > reads bytes form target's memory at any adress , after that 
     // we can point ta rsp and see the raw stack.
 
@@ -121,6 +159,13 @@ impl Debugger {
                             "regs" => {
                                 let regs = ptrace::getregs(pid).expect("getregs failed");
                                 print_regs(&regs);
+                            }
+
+
+                            "backtrace"  => { 
+                                let regs  = ptrace::getregs(pid).expect("get regs failed");
+                                self.backtrace(&regs);
+                            
                             }
 
                             cmd if cmd.starts_with("memory ") => { 

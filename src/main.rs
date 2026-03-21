@@ -34,6 +34,35 @@ impl Debugger {
         result
     }
 
+    fn read_string(&self, addr: u64) -> String {
+        let mut result = Vec::new();
+        let mut i = 0;
+        loop {
+            match ptrace::read(self.pid, (addr + i) as *mut _) {
+                Err(_) => return String::from_utf8_lossy(&result).to_string(),
+                Ok(word) => {
+                    for b in word.to_le_bytes() {
+                        if b == 0 {
+                            return String::from_utf8_lossy(&result).to_string();
+                        }
+                        result.push(b);
+                    }
+                }
+            }
+            i += 8;
+        }
+    }
+
+    // read a pointer stored at `addr` and return what it points to as a string
+    fn deref_string(&self, addr: u64) -> String {
+        match ptrace::read(self.pid, addr as *mut _) {
+            Ok(ptr) => self.read_string(ptr as u64),
+            Err(_) => "<invalid address>".to_string(),
+        }
+    }
+
+
+
 
     // Patch the byte at `addr` with INT3 (0xCC) so the CPU traps when it gets there
     fn set_breakpoint(&mut self, addr: u64) {
@@ -113,6 +142,21 @@ impl Debugger {
                                     println!();
                                 }
 
+                            }
+
+                            cmd if cmd.starts_with("string ") => {
+                                let addr = u64::from_str_radix(
+                                    cmd.trim_start_matches("string ").trim_start_matches("0x"),
+                                    16
+                                ).unwrap_or(0);
+                                println!("{:?}", self.read_string(addr));
+                            }
+                            cmd if cmd.starts_with("deref ") => {
+                                let addr = u64::from_str_radix(
+                                    cmd.trim_start_matches("deref ").trim_start_matches("0x"),
+                                    16
+                                ).unwrap_or(0);
+                                println!("{:?}", self.deref_string(addr));
                             }
                         
 

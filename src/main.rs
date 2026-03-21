@@ -272,10 +272,29 @@ fn load_symbols(path: &str) -> BTreeMap<u64 , String> {
         }
     }
     map
-        
 }
 
 
+// reads /proc/<pid>/maps and finds the base address the binary was loaded at
+fn get_load_base(pid: nix::unistd::Pid, binary: &str) -> u64 {
+    let maps = std::fs::read_to_string(format!("/proc/{}/maps", pid))
+        .expect("failed to read maps");
+
+    // each line looks like: 55ae36e9000-55ae36ea000 r--p 00000000 ... /path/to/binary
+    // we want the first line that matches our binary — that's the load base
+    let binary_name = std::path::Path::new(binary)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(binary);
+
+    for line in maps.lines() {
+        if line.contains(binary_name) {
+            let addr_str = line.split('-').next().unwrap_or("0");
+            return u64::from_str_radix(addr_str, 16).unwrap_or(0);
+        }
+    }
+    0
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -294,6 +313,19 @@ fn main() {
         ForkResult::Parent { child } => {
             println!("[debugger] attached to pid {}", child);
             let mut dbg = Debugger::new(child, &args[1]);
+
+            // wait for the child to stop at the first instruction before reading maps
+            nix::sys::wait::waitpid(child, None).expect("waitpid failed");
+            let base = get_load_base(child, &args[1]);
+            println!("[debugger] load base: 0x{:x}", base);
+
+            // shift all symbol addresses by the load base
+            dbg.symbols = dbg.symbols.into_iter()
+                .map(|(addr, name)| (addr + base, name))
+                .collect();
+
+            // re-stop the child so run() sees it in Stopped state
+            ptrace::step(child, None).expect("step failed");
             dbg.run();
         }
     }

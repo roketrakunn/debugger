@@ -2,18 +2,24 @@ use std::{ffi::CString, io::Write, collections::HashMap};
 use nix::unistd::{ForkResult, execvp, fork};
 use nix::sys::ptrace;
 use nix::sys::wait::{waitpid, WaitStatus};
+use std::collections::BTreeMap; 
 
-// Holds all debugger state
-struct Debugger {
-    pid: nix::unistd::Pid,
-    breakpoints: HashMap<u64, u8>, // address -> original byte before we patched it with 0xCC
+struct Debugger { 
+    pid : nix::unistd::Pid,
+    breakpoints : HashMap<u64 , u8>,
+    symbols  : BTreeMap<u64 , String>,
+
 }
 
+
 impl Debugger {
-    fn new(pid: nix::unistd::Pid) -> Self {
+    fn new(pid: nix::unistd::Pid, path: &str) -> Self {
+        let symbols = load_symbols(path);
+
         Debugger {
             pid,
             breakpoints: HashMap::new(),
+            symbols
         }
     }
 
@@ -28,7 +34,8 @@ impl Debugger {
 
 
         loop {
-            println!("  frame {}: rip  = 0x{:x}", frame , rip); 
+            let name = self.symbols.get(&rip).map(|s| s.as_str()).unwrap_or("<unknown>");
+            println!("  frame {}: 0x{:x} in {}", frame, rip, name);
 
             if rbp == 0 { 
                 break;
@@ -245,6 +252,31 @@ fn print_regs(regs: &nix::libc::user_regs_struct) {
     println!("rbp = 0x{:x}", regs.rbp);
 }
 
+
+fn load_symbols(path: &str) -> BTreeMap<u64 , String> { 
+    let mut map = BTreeMap::new();
+    let file_data = std::fs::read(path).expect("failed to read binary"); 
+
+    let elf = elf::ElfBytes::<elf::endian::AnyEndian>::minimal_parse(&file_data)
+        .expect("failed to parse ELF"); 
+
+    if let Ok(Some((symtab , strtab))) = elf.symbol_table() { 
+        for sym in symtab { 
+            if sym.st_size > 0 { 
+                if let Ok(name) = strtab.get(sym.st_name as usize) { 
+                    if !name.is_empty() { 
+                        map.insert(sym.st_value, name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    map
+        
+}
+
+
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
@@ -261,7 +293,7 @@ fn main() {
         }
         ForkResult::Parent { child } => {
             println!("[debugger] attached to pid {}", child);
-            let mut dbg = Debugger::new(child);
+            let mut dbg = Debugger::new(child, &args[1]);
             dbg.run();
         }
     }

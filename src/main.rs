@@ -25,6 +25,21 @@ impl Debugger {
 
     //back tracing the stack
 
+    fn nearest_symbol(&self, addr: u64) -> String {
+        use std::ops::Bound;
+        match self.symbols.range((Bound::Unbounded, Bound::Included(addr))).next_back() {
+            Some((&sym_addr, name)) => {
+                let offset = addr - sym_addr;
+                if offset == 0 {
+                    name.clone()
+                } else {
+                    format!("{} + 0x{:x}", name, offset)
+                }
+            }
+            None => "<unknown>".to_string(),
+        }
+    }
+
     fn backtrace(&mut self, regs :&nix::libc::user_regs_struct) {
         println!("[backtrace]");
         
@@ -34,7 +49,7 @@ impl Debugger {
 
 
         loop {
-            let name = self.symbols.get(&rip).map(|s| s.as_str()).unwrap_or("<unknown>");
+            let name = self.nearest_symbol(rip);
             println!("  frame {}: 0x{:x} in {}", frame, rip, name);
 
             if rbp == 0 { 

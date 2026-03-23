@@ -6,7 +6,7 @@ Implements the core features of a real debugger — breakpoints, single stepping
 
 ## Features
 
-- **Breakpoints** — set breakpoints at any address using `INT3` patching (`0xCC`)
+- **Breakpoints** — set breakpoints at any address or function name using `INT3` patching (`0xCC`)
 - **Single stepping** — execute one instruction at a time
 - **Register inspection** — dump all x86-64 registers
 - **Memory reads** — inspect raw bytes at any address
@@ -37,7 +37,7 @@ cargo run -- /bin/ls
 | `memory <addr> [len]` | Print `len` bytes (default 64) starting at `addr` |
 | `string <addr>` | Read a null-terminated string at `addr` |
 | `deref <addr>` | Follow a pointer at `addr` and print the string it points to |
-| `break <addr>` | Set a breakpoint at `addr` |
+| `break <addr\|name>` | Set a breakpoint at a hex address or function name |
 | `backtrace` | Walk the call stack and print frame addresses with function names |
 
 ## How it works

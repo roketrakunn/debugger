@@ -25,8 +25,16 @@ impl Debugger {
 
     //back tracing the stack
 
+    fn resolve_symbol(&self, name: &str) -> Option<u64> {
+        self.symbols.iter()
+            .find(|(_, n)| n.as_str() == name)
+            .map(|(&addr, _)| addr)
+    }
+
     fn nearest_symbol(&self, addr: u64) -> String {
         use std::ops::Bound;
+        
+    
         match self.symbols.range((Bound::Unbounded, Bound::Included(addr))).next_back() {
             Some((&sym_addr, name)) => {
                 let offset = addr - sym_addr;
@@ -228,11 +236,13 @@ impl Debugger {
                         
 
                             cmd if cmd.starts_with("break ") => {
-                                // expects: break 0x401234
-                                let addr_str = cmd.trim_start_matches("break ").trim_start_matches("0x");
-                                match u64::from_str_radix(addr_str, 16) {
-                                    Ok(addr) => self.set_breakpoint(addr),
-                                    Err(_) => println!("invalid address"),
+                                let target = cmd.trim_start_matches("break ").trim();
+                                let addr = u64::from_str_radix(target.trim_start_matches("0x"), 16)
+                                    .ok()
+                                    .or_else(|| self.resolve_symbol(target));
+                                match addr {
+                                    Some(a) => self.set_breakpoint(a),
+                                    None => println!("unknown symbol or invalid address: {}", target),
                                 }
                             }
                             _ => {
